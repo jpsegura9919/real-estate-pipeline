@@ -15,6 +15,7 @@ from scrapers.base import BaseScraper
 
 class HabitacliaScraper(BaseScraper):
     source = "habitaclia"
+    site_root = "https://www.habitaclia.com"
     urls = {
         # Desde sept. 2026 Habitaclia usa la misma plataforma web que Fotocasa
         "venta": "https://www.habitaclia.com/comprar/viviendas/sevilla-provincia/sevilla-capital/s",
@@ -70,8 +71,7 @@ class HabitacliaScraper(BaseScraper):
                         page.wait_for_selector("article", timeout=15000)
                     except Exception:
                         pass
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(random.uniform(2, 3))
+                    self.scroll_all_cards(page)
                     html = page.content()
                 except Exception as e:
                     print(f"     ⚠️  Error: {e}")
@@ -84,7 +84,7 @@ class HabitacliaScraper(BaseScraper):
                     break
 
                 for article in articles:
-                    listing = self._parse_article(article, operation)
+                    listing = self.parse_card(article, operation)
                     if listing and listing["price"]:
                         all_listings.append(listing)
 
@@ -93,61 +93,3 @@ class HabitacliaScraper(BaseScraper):
             browser.close()
 
         return all_listings
-
-    def _parse_article(self, article, operation: str) -> dict | None:
-        """
-        Extrae los datos de un anuncio con el formato nuevo de Habitaclia.
-        El texto del anuncio llega como bloques separados, por ejemplo:
-        "360.000 € | Piso ... en venta en Macarena | Sevilla Capital, Sevilla | 83 m² | 3 hab. | 2 baños | 1º"
-        """
-        try:
-            parts = [t.strip() for t in article.get_text("|", strip=True).split("|") if t.strip()]
-
-            price = size = rooms = baths = floor = zone = None
-            for t in parts:
-                t_clean = t.replace("\xa0", " ")
-                if price is None and "€" in t_clean and "/m²" not in t_clean and "/m2" not in t_clean:
-                    digits = re.sub(r"[^\d]", "", t_clean.split("€")[0])
-                    if digits and int(digits) >= 100:
-                        price = int(digits)
-                elif size is None and re.fullmatch(r"\d+\s*m²", t_clean):
-                    size = int(re.match(r"\d+", t_clean).group())
-                elif rooms is None and re.fullmatch(r"\d+\s*hab\.?", t_clean, re.IGNORECASE):
-                    rooms = int(re.match(r"\d+", t_clean).group())
-                elif baths is None and re.fullmatch(r"\d+\s*baños?", t_clean, re.IGNORECASE):
-                    baths = int(re.match(r"\d+", t_clean).group())
-                elif floor is None and re.fullmatch(r"(\d+º|Bajo|Entreplanta|Sótano)", t_clean, re.IGNORECASE):
-                    floor = t_clean
-                elif zone is None and "," in t_clean and "Sevilla" in t_clean and " en " not in t_clean:
-                    first = t_clean.split(",")[0].strip()
-                    if first.lower() != "sevilla capital":
-                        zone = first
-
-            # URL y, si hace falta, barrio a partir de ella:
-            # /comprar/<tipo>/.../<barrio>/sevilla-capital/<id>/d
-            url = None
-            link = article.find("a", {"data-panot-component": "link-box-link"})
-            href = link.get("href") if link else None
-            if href:
-                url = href if href.startswith("http") else f"https://www.habitaclia.com{href}"
-                if zone is None:
-                    segs = [x for x in href.split("/") if x]
-                    if "sevilla-capital" in segs:
-                        i = segs.index("sevilla-capital")
-                        if i > 0:
-                            zone = segs[i - 1].replace("-", " ").title()
-
-            return self.build_listing(
-                operation=operation,
-                zone=zone,
-                price=price,
-                size_m2=size,
-                rooms=rooms,
-                bathrooms=baths,
-                floor=floor,
-                url=url,
-            )
-
-        except Exception as e:
-            print(f"     ⚠️  Error parseando: {e}")
-            return None

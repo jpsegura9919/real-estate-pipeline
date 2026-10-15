@@ -3,6 +3,7 @@ transform.py
 Limpieza, enriquecimiento y deduplicación de anuncios cross-portal.
 """
 
+import re
 import unicodedata
 import pandas as pd
 
@@ -21,11 +22,15 @@ def make_fingerprint(row) -> str | None:
     """
     Genera un identificador único de la vivienda basado en sus características.
     Anuncios del mismo piso en diferentes portales generarán el mismo fingerprint.
+
+    Se usa el DISTRITO y no el barrio: Fotocasa publica el barrio ("Cruz Roja")
+    y Habitaclia solo el distrito ("Macarena"), así que el barrio nunca coincide.
     """
-    if not all([row.get("zone"), row.get("operation"), row.get("size_m2"), row.get("price")]):
+    area = row.get("district") if isinstance(row.get("district"), str) else row.get("zone")
+    if not all([area, row.get("operation"), row.get("size_m2"), row.get("price")]):
         return None
 
-    zone_norm = normalize_zone(row["zone"])
+    zone_norm = re.sub(r"[^a-z0-9]", "", normalize_zone(area))
     # Buckets con tolerancia para absorber variaciones entre portales
     size_bucket = round(row["size_m2"] / 5) * 5
     price_bucket = round(row["price"] / 1000) * 1000
@@ -60,10 +65,21 @@ def clean_listings(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Zona normalizada y limpia
-    df["zone"] = df["zone"].fillna("Sin zona").str.strip().str.title()
+    df["zone"] = df["zone"].fillna("Sin zona").str.strip()
+    if "district" not in df.columns:
+        df["district"] = None
+
+    # Completar el distrito que falte a partir de otros anuncios del mismo barrio
+    # (Fotocasa suele publicar "Barrio, Distrito", lo que sirve de tabla de equivalencias)
+    known = (
+        df.dropna(subset=["district"])
+        .groupby("zone")["district"]
+        .agg(lambda s: s.mode().iloc[0])
+    )
+    df["district"] = df["district"].where(df["district"].notna(), df["zone"].map(known))
 
     # Fingerprint
-    df["fingerprint"] = df.apply(make_fingerprint, axis=1)
+    df["fingerprint"] = df.apply(make_fingerprint, axis=1) if not df.empty else pd.Series(dtype=object)
 
     print(f"  ✅ {len(df)} anuncios limpios con fingerprint.")
     return df

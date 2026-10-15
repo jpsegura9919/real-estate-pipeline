@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 pipeline.log
+overlap_check.csv

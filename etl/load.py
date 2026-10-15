@@ -26,6 +26,7 @@ def create_tables(engine):
         source          VARCHAR(30),
         operation       VARCHAR(20),
         zone            VARCHAR(100),
+        district        VARCHAR(50),
         price           NUMERIC(12,2),
         size_m2         NUMERIC(8,2),
         rooms           INTEGER,
@@ -45,6 +46,7 @@ def create_tables(engine):
         source          VARCHAR(30),
         operation       VARCHAR(20),
         zone            VARCHAR(100),
+        district        VARCHAR(50),
         price           NUMERIC(12,2),
         size_m2         NUMERIC(8,2),
         rooms           INTEGER,
@@ -57,6 +59,9 @@ def create_tables(engine):
         url             TEXT,
         UNIQUE (fingerprint, date)
     );
+
+    ALTER TABLE listings ADD COLUMN IF NOT EXISTS district VARCHAR(50);
+    ALTER TABLE listings_deduplicated ADD COLUMN IF NOT EXISTS district VARCHAR(50);
 
     CREATE TABLE IF NOT EXISTS market_summary (
         id              SERIAL PRIMARY KEY,
@@ -84,10 +89,10 @@ def load_listings(df: pd.DataFrame, engine, table: str = "listings"):
     if table == "listings":
         upsert_sql = text("""
             INSERT INTO listings 
-                (date, source, operation, zone, price, size_m2, rooms, bathrooms, 
+                (date, source, operation, zone, district, price, size_m2, rooms, bathrooms, 
                  floor, extras, price_per_m2, size_category, fingerprint, url)
             VALUES 
-                (:date, :source, :operation, :zone, :price, :size_m2, :rooms, :bathrooms,
+                (:date, :source, :operation, :zone, :district, :price, :size_m2, :rooms, :bathrooms,
                  :floor, :extras, :price_per_m2, :size_category, :fingerprint, :url)
             ON CONFLICT (url, date) DO UPDATE SET
                 price        = EXCLUDED.price,
@@ -97,10 +102,10 @@ def load_listings(df: pd.DataFrame, engine, table: str = "listings"):
     else:  # listings_deduplicated
         upsert_sql = text("""
             INSERT INTO listings_deduplicated 
-                (date, source, operation, zone, price, size_m2, rooms, bathrooms, 
+                (date, source, operation, zone, district, price, size_m2, rooms, bathrooms, 
                  floor, extras, price_per_m2, size_category, fingerprint, url)
             VALUES 
-                (:date, :source, :operation, :zone, :price, :size_m2, :rooms, :bathrooms,
+                (:date, :source, :operation, :zone, :district, :price, :size_m2, :rooms, :bathrooms,
                  :floor, :extras, :price_per_m2, :size_category, :fingerprint, :url)
             ON CONFLICT (fingerprint, date) DO UPDATE SET
                 price        = EXCLUDED.price,

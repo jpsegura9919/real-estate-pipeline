@@ -15,6 +15,7 @@ from scrapers.base import BaseScraper
 
 class FotocasaScraper(BaseScraper):
     source = "fotocasa"
+    site_root = "https://www.fotocasa.es"
     urls = {
         "venta": "https://www.fotocasa.es/es/comprar/viviendas/sevilla-capital/todas-las-zonas/l",
         "alquiler": "https://www.fotocasa.es/es/alquiler/viviendas/sevilla-capital/todas-las-zonas/l",
@@ -72,8 +73,7 @@ class FotocasaScraper(BaseScraper):
                         page.wait_for_selector("article", timeout=20000)
                     except Exception:
                         pass
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                    time.sleep(random.uniform(2, 3))
+                    self.scroll_all_cards(page)
                     html = page.content()
                 except Exception as e:
                     print(f"     ⚠️  Error: {e}")
@@ -85,7 +85,7 @@ class FotocasaScraper(BaseScraper):
                     break
 
                 for article in articles:
-                    listing = self._parse_article(article, operation)
+                    listing = self.parse_card(article, operation)
                     if listing and listing["price"]:
                         all_listings.append(listing)
 
@@ -94,64 +94,3 @@ class FotocasaScraper(BaseScraper):
             browser.close()
 
         return all_listings
-
-    def _parse_article(self, article, operation: str) -> dict | None:
-        try:
-            # Precio
-            price = None
-            price_container = article.find("div", class_=lambda c: c and "text-display-3" in c)
-            if price_container:
-                price_span = price_container.find("span")
-                if price_span:
-                    price_text = price_span.get_text(strip=True)
-                    price_clean = re.sub(r"[^\d]", "", price_text.split("€")[0])
-                    price = int(price_clean) if price_clean else None
-
-            # Características
-            rooms = baths = size = floor = None
-            extras = []
-            features_ul = article.find("ul", class_=lambda c: c and "list-none" in c and "line-clamp" in c)
-            if features_ul:
-                for li in features_ul.find_all("li"):
-                    text = li.get_text(strip=True).replace("\xa0", " ")
-                    if "hab" in text.lower():
-                        m = re.search(r"(\d+)", text)
-                        if m: rooms = int(m.group(1))
-                    elif "baño" in text.lower():
-                        m = re.search(r"(\d+)", text)
-                        if m: baths = int(m.group(1))
-                    elif "m²" in text:
-                        m = re.search(r"(\d+)", text)
-                        if m: size = int(m.group(1))
-                    elif "planta" in text.lower():
-                        floor = text.replace("·", "").strip()
-                    else:
-                        kw = text.replace("·", "").strip()
-                        if kw: extras.append(kw)
-
-            # Zona
-            zone = None
-            zone_p = article.find("p", class_=lambda c: c and "truncate" in c)
-            if zone_p:
-                zone_text = zone_p.get_text(strip=True)
-                zone = zone_text.split(",")[0].strip()
-
-            # URL
-            link_tag = article.find("a", {"data-panot-component": "link-box-link"})
-            url = f"https://www.fotocasa.es{link_tag['href']}" if link_tag and link_tag.get("href") else None
-
-            return self.build_listing(
-                operation=operation,
-                zone=zone,
-                price=price,
-                size_m2=size,
-                rooms=rooms,
-                bathrooms=baths,
-                floor=floor,
-                extras=extras,
-                url=url,
-            )
-
-        except Exception as e:
-            print(f"     ⚠️  Error parseando: {e}")
-            return None
